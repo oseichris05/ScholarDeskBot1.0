@@ -1,68 +1,171 @@
+# import re
+# from telegram import Update, ReplyKeyboardMarkup
+# from telegram.ext import ContextTypes, ConversationHandler
+# from utils.db import users_coll
 
-import uuid
-from datetime import datetime
-from telegram import ReplyKeyboardMarkup, Update
+# EMAIL, USERNAME = range(2)
+# EMAIL_REGEX = re.compile(r"^[^@]+@[^@]+\.[^@]+$")
+
+# def build_main_menu() -> ReplyKeyboardMarkup:
+#     keyboard = [
+#         ["📊 Dashboard", "🛒 Buy Checker"],
+#         ["📝 Buy Forms",   "🤝 Invite Friends"],
+#         ["🏆 Leaderboard", "🛠 Support"],
+#     ]
+#     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     tg = update.effective_user
+#     # Always send a friendly welcome
+#     await update.message.reply_text(
+#         f"🎓 Hello <b>{tg.first_name}</b>! Welcome to ScholarDeskBot.\n"
+#         "Press a button or type /help for instructions.",
+#         reply_markup=build_main_menu(),
+#         parse_mode="HTML"
+#     )
+#     # Check if already registered
+#     doc = users_coll.document(str(tg.id)).get()
+#     if doc.to_dict():
+#         return ConversationHandler.END
+
+#     # Otherwise, collect email
+#     await update.message.reply_text("✉️ Please enter your email address:")
+#     return EMAIL
+
+# async def email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     text = update.message.text.strip()
+#     if not EMAIL_REGEX.match(text):
+#         await update.message.reply_text("⚠️ That doesn't look like a valid email. Try again:")
+#         return EMAIL
+
+#     # Uniqueness check
+#     if any(True for _ in users_coll.where("email","==",text).stream()):
+#         await update.message.reply_text("⚠️ That email is already registered. Enter another:")
+#         return EMAIL
+
+#     context.user_data["email"] = text
+#     await update.message.reply_text("✅ Email saved! Now enter your desired username:")
+#     return USERNAME
+
+# async def username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     text = update.message.text.strip()
+#     # Uniqueness check
+#     if any(True for _ in users_coll.where("username","==",text).stream()):
+#         await update.message.reply_text("⚠️ Username taken. Choose another:")
+#         return USERNAME
+
+#     tg = update.effective_user
+#     record = {
+#         "telegram_id":         tg.id,
+#         "telegram_username":   tg.username,
+#         "telegram_first_name": tg.first_name,
+#         "telegram_last_name":  tg.last_name,
+#         "email":               context.user_data["email"],
+#         "username":            text,
+#         "transactions_count":  0,
+#         "referral_count":      0,
+#     }
+#     users_coll.document(str(tg.id)).set(record)
+#     await update.message.reply_text(
+#         f"🎉 Thanks, <b>{tg.first_name}</b>! You’re registered.",
+#         reply_markup=build_main_menu(),
+#         parse_mode="HTML"
+#     )
+#     return ConversationHandler.END
+
+
+# handlers/main_menu.py
+# handlers/main_menu.py
+
+import re
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from utils.db import users_coll
 
+# Conversation states
 EMAIL, USERNAME = range(2)
 
-MAIN_MENU_BUTTONS = [
-    ["📊 Dashboard", "🛒 Buy Checker"],
-    ["📃 Buy Forms", "🏆 Leaderboard"],
-    ["🤝 Invite Friends", "💬 Support"],
-]
-
+# Simple email regex
+EMAIL_REGEX = re.compile(r"^[^@]+@[^@]+\.[^@]+$")
 
 def build_main_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(MAIN_MENU_BUTTONS, resize_keyboard=True)
-
+    keyboard = [
+        ["📊 Dashboard", "🛒 Buy Checker"],
+        ["📝 Buy Forms",   "🤝 Invite Friends"],
+        ["🏆 Leaderboard", "🛠 Support"],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    tg_user = update.effective_user
-    first = tg_user.first_name or ""
-    last = tg_user.last_name or ""
-    full_name = f"{first} {last}".strip()
+    """Handle /start: either prompt registration or show main menu."""
+    tg = update.effective_user
+    # Fetch existing user record
+    user_doc = users_coll.document(str(tg.id)).get().to_dict() or {}
 
-    existing = await users_coll.find_one({"telegram_id": tg_user.id})
-    if existing:
-        await update.message.reply_text(
-            f"👋 Welcome back, {full_name}! Here’s the main menu:",
-            reply_markup=build_main_menu()
+    if not user_doc.get("email"):
+        # New user flow
+        welcome = (
+            "👋 *Welcome to ScholarDeskBot!* 👋\n\n"
+            "I can help you purchase exam checkers (BECE, WASSCE, Nov/Dec, NSS) "
+            "and application forms easily.\n\n"
+            "To get started, please register by sending me your email address:"
         )
-        return ConversationHandler.END
+        await update.message.reply_text(welcome, parse_mode="Markdown")
+        return EMAIL
 
+    # Returning user
+    first_name = user_doc.get("telegram_first_name", tg.first_name)
     await update.message.reply_text(
-        f"👋 Hello, {full_name}! Welcome to ScholarDeskBot! To get started, please enter your email address:"
+        f"🎉 Welcome back, *{first_name}*!",
+        reply_markup=build_main_menu(),
+        parse_mode="Markdown"
     )
-    return EMAIL
-
+    return ConversationHandler.END
 
 async def email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["email"] = update.message.text.strip()
-    await update.message.reply_text("✅ Got it! Now please enter your desired username:")
+    """Validate email and prompt for username."""
+    text = update.message.text.strip()
+    if not EMAIL_REGEX.match(text):
+        await update.message.reply_text("⚠️ That doesn’t look like a valid email. Please try again:")
+        return EMAIL
+
+    # Ensure email uniqueness
+    existing = users_coll.where(field_path="email", op_string="==", value=text).stream()
+    if any(True for _ in existing):
+        await update.message.reply_text("⚠️ This email is already registered. Enter a different one:")
+        return EMAIL
+
+    context.user_data["email"] = text
+    await update.message.reply_text("✅ Great! Now, please choose a username:")
     return USERNAME
 
-
 async def username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    username = update.message.text.strip()
-    tg_user = update.effective_user
-    email = context.user_data.get("email")
-    referral_code = uuid.uuid4().hex[:8]
+    """Validate username and complete registration."""
+    text = update.message.text.strip()
 
-    new_user = {
-        "telegram_id": tg_user.id,
-        "email": email,
-        "username": username,
-        "referral_code": referral_code,
-        "referred_by": None,
-        "created_at": datetime.utcnow(),
+    # Ensure username uniqueness
+    existing = users_coll.where(field_path="username", op_string="==", value=text).stream()
+    if any(True for _ in existing):
+        await update.message.reply_text("⚠️ That username is already taken. Try another:")
+        return USERNAME
+
+    tg = update.effective_user
+    # Build full user record
+    record = {
+        "telegram_id":         tg.id,
+        "telegram_username":   tg.username,
+        "telegram_first_name": tg.first_name,
+        "telegram_last_name":  tg.last_name,
+        "email":               context.user_data["email"],
+        "username":            text,
+        "transactions_count":  0,
+        "referral_count":      0,
     }
-    await users_coll.insert_one(new_user)
+    users_coll.document(str(tg.id)).set(record)
 
     await update.message.reply_text(
-        f"🎉 Registration complete! Your referral code is `{referral_code}`.\n"
-        "Here’s the main menu:",
-        reply_markup=build_main_menu()
+        f"✅ Thanks, *{tg.first_name}*! You’re all set up.",
+        reply_markup=build_main_menu(),
+        parse_mode="Markdown"
     )
     return ConversationHandler.END

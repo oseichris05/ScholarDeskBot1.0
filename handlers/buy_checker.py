@@ -10,197 +10,90 @@
 # )
 # from utils.paystack import initialize_payment, verify_payment, PaystackError
 
-# # Conversation states
-# CHOOSE_CHECKER, ENTER_QUANTITY, VERIFY_PAYMENT = range(3)
+# CHOOSE_CHECKER, ENTER_QUANTITY, _ = range(3)
 
-# # Load prices from config.json
 # CHECKER_PRICES = {c["code"]: c["price"] for c in CONFIG["checkers"]}
 
-
 # async def start_buy_checker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-#     """Step 1: Ask which checker type."""
 #     codes = list(CHECKER_PRICES.keys())
-#     rows = [codes[i : i + 2] for i in range(0, len(codes), 2)]
-#     keyboard = [
-#         [InlineKeyboardButton(code, callback_data=f"type:{code}") for code in row]
-#         for row in rows
-#     ]
-#     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
-
-#     await update.message.reply_text(
-#         "🛒 Which checker would you like to purchase?",
-#         reply_markup=InlineKeyboardMarkup(keyboard),
-#     )
+#     rows = [codes[i:i+2] for i in range(0,len(codes),2)]
+#     kb = [[
+#         InlineKeyboardButton(code, callback_data=f"type:{code}") for code in row
+#     ] for row in rows]
+#     kb.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+#     await update.message.reply_text("🛒 Which checker?", reply_markup=InlineKeyboardMarkup(kb))
 #     return CHOOSE_CHECKER
 
-
 # async def choose_checker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-#     """Step 2: Ask for quantity."""
-#     q = update.callback_query
-#     await q.answer()
+#     q = update.callback_query; await q.answer()
+#     if q.data=="cancel":
+#         await q.edit_message_text("❌ Cancelled"); return ConversationHandler.END
+#     _, typ = q.data.split(":",1)
+#     context.user_data["checker_type"] = typ
 
-#     if q.data == "cancel":
-#         await q.edit_message_text("❌ Purchase cancelled.")
-#         return ConversationHandler.END
-
-#     _, checker_type = q.data.split(":", 1)
-#     context.user_data["checker_type"] = checker_type
-
-#     quantities = [1, 2, 5, 10, 50, 100, 500]
-#     qty_rows = [quantities[i : i + 3] for i in range(0, len(quantities), 3)]
-#     keyboard = [
-#         [InlineKeyboardButton(str(n), callback_data=f"qty:{n}") for n in row]
-#         for row in qty_rows
-#     ]
-#     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
-
-#     await q.edit_message_text(
-#         f"✏️ How many **{checker_type}** checkers do you want?",
-#         parse_mode="Markdown",
-#         reply_markup=InlineKeyboardMarkup(keyboard),
-#     )
+#     qtys = [1,2,5,10,50,100,500]
+#     rows=[qtys[i:i+3] for i in range(0,len(qtys),3)]
+#     kb = [[InlineKeyboardButton(str(n), callback_data=f"qty:{n}") for n in row] for row in rows]
+#     kb.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+#     await q.edit_message_text(f"✏️ How many *{typ}*?", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 #     return ENTER_QUANTITY
 
-
 # async def enter_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-#     """Step 3: Create Paystack link & prompt verification."""
-#     q = update.callback_query
-#     await q.answer()
+#     q = update.callback_query; await q.answer()
+#     if q.data=="cancel":
+#         await q.edit_message_text("❌ Cancelled"); return ConversationHandler.END
+#     _, qty_s = q.data.split(":",1)
+#     quantity = int(qty_s)
+#     typ      = context.user_data["checker_type"]
 
-#     if q.data == "cancel":
-#         await q.edit_message_text("❌ Purchase cancelled.")
-#         return ConversationHandler.END
-
-#     _, qty_str = q.data.split(":", 1)
-#     quantity = int(qty_str)
-#     checker_type = context.user_data["checker_type"]
-
-#     # Check stock
-#     stock = (
-#         await checker_stock_coll.find_one({"checker_type": checker_type})
-#     ).get("stock", 0)
-#     if quantity > stock:
+#     stock_doc = checker_stock_coll.document(typ).get()
+#     available = (stock_doc.to_dict() or {}).get("stock",0)
+#     if quantity>available:
 #         await q.edit_message_text(
-#             f"⚠️ Sorry, we do not have that many *{checker_type}* checkers right now.\n"
-#             "Please choose a smaller quantity.",
-#             parse_mode="Markdown",
+#             f"⚠️ You requested {quantity} but only {available} in stock. Choose less.",
+#             parse_mode="Markdown"
 #         )
 #         return ConversationHandler.END
 
-#     unit_price = CHECKER_PRICES[checker_type]
-#     total = unit_price * quantity
+#     total = CHECKER_PRICES[typ]*quantity
+#     user_doc = users_coll.document(str(q.from_user.id)).get().to_dict() or {}
+#     email    = user_doc.get("email","N/A")
 
-#     user = await users_coll.find_one({"telegram_id": q.from_user.id})
-#     email = user.get("email", "N/A")
+#     ref       = uuid.uuid4().hex
+#     pay_url,_ = initialize_payment(email,total,ref)
 
-#     # Initialize payment
-#     reference = uuid.uuid4().hex
-#     auth_url, pay_ref = initialize_payment(email, total, reference)
-
-#     # Record pending transaction
-#     await transactions_coll.insert_one({
-#         "user_id":    q.from_user.id,
-#         "type":       "checker",
-#         "item_code":  checker_type,
-#         "quantity":   quantity,
-#         "amount":     total,
-#         "status":     "pending",
-#         "reference":  pay_ref,
+#     transactions_coll.document(ref).set({
+#         "user_id":   q.from_user.id,
+#         "item_code": typ,
+#         "quantity":  quantity,
+#         "amount":    total,
+#         "status":    "pending",
+#         "reference": ref,
 #     })
 
-#     # Prompt user
-#     summary = (
-#         f"TID:{pay_ref}\n"
-#         f"Quantity: {quantity}\n"
-#         f"Type: {checker_type}\n\n"
-#         "Tap **Pay Now**, complete payment, then tap **I've Paid**."
-#     )
-#     keyboard = [[
-#         InlineKeyboardButton("💳 Pay Now", url=auth_url),
-#         InlineKeyboardButton("✔️ I've Paid", callback_data=f"verify:{pay_ref}")
-#     ]]
 #     await q.edit_message_text(
-#         summary,
+#         f"TID:{ref}\nQty:{quantity}\nType:{typ}\n\n💳 Tap *Pay Now* above to pay.",
 #         parse_mode="Markdown",
-#         reply_markup=InlineKeyboardMarkup(keyboard),
-#     )
-
-#     context.user_data.update(
-#         quantity=quantity,
-#         reference=pay_ref,
-#         checker_type=checker_type,
-#     )
-#     return VERIFY_PAYMENT
-
-
-# async def verify_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-#     """Step 4: Verify Paystack and deliver serials/pins."""
-#     q = update.callback_query
-#     await q.answer()
-
-#     if not q.data.startswith("verify:"):
-#         return ConversationHandler.END
-
-#     _, ref = q.data.split(":", 1)
-#     try:
-#         verify_payment(ref)
-#     except PaystackError as e:
-#         await q.edit_message_text(f"❌ Verification failed: {e}")
-#         return ConversationHandler.END
-
-#     # Mark transaction success
-#     await transactions_coll.update_one(
-#         {"reference": ref},
-#         {"$set": {"status": "success"}}
-#     )
-
-#     # Fetch codes
-#     qty = context.user_data["quantity"]
-#     typ = context.user_data["checker_type"]
-#     docs = await checker_codes_coll.find(
-#         {"checker_type": typ, "used": False}
-#     ).to_list(length=qty)
-
-#     if len(docs) < qty:
-#         await q.edit_message_text("❌ Not enough codes available.")
-#         return ConversationHandler.END
-
-#     # Mark used and collect
-#     codes = []
-#     for doc in docs:
-#         await checker_codes_coll.update_one(
-#             {"_id": doc["_id"]}, {"$set": {"used": True}}
-#         )
-#         codes.append((doc["serial"], doc["pin"]))
-
-#     # Update transaction with codes
-#     await transactions_coll.update_one(
-#         {"reference": ref},
-#         {"$set": {"codes_assigned": [{"serial": s, "pin": p} for s, p in codes]}}
-#     )
-
-#     # Build delivery message
-#     lines = [f"TID:{ref}"]
-#     for i, (s, p) in enumerate(codes, start=1):
-#         lines.append(f"#{i}\n-\n{typ}\nSERIAL|PIN\n{s}|{p}\n")
-#     lines.append("Check your results here\nghana.waecdirect.org\n-")
-#     delivery = "\n".join(lines)
-
-#     await q.edit_message_text(delivery, parse_mode="Markdown")
-
-#     # Back to main menu
-#     from handlers.main_menu import build_main_menu
-#     await q.message.reply_text(
-#         "Here’s the main menu:",
-#         reply_markup=build_main_menu()
+#         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 Pay Now", url=pay_url)]])
 #     )
 #     return ConversationHandler.END
 
 
 # handlers/buy_checker.py
 
+
+
+
+# handlers/buy_checker.py
+# handlers/buy_checker.py
+# handlers/buy_checker.py
+
 import uuid
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.ext import ContextTypes, ConversationHandler
 from utils.config import CONFIG
 from utils.db import (
@@ -209,183 +102,139 @@ from utils.db import (
     transactions_coll,
     checker_codes_coll,
 )
-from utils.paystack import initialize_payment, verify_payment, PaystackError
+from utils.paystack import initialize_payment
 
-# Conversation states
-CHOOSE_CHECKER, ENTER_QUANTITY, VERIFY_PAYMENT = range(3)
+# States
+CHOOSE_CHECKER, ENTER_QUANTITY = range(2)
 
-# Prices from config.json
+# Load checker prices from config
 CHECKER_PRICES = {c["code"]: c["price"] for c in CONFIG["checkers"]}
 
 
 async def start_buy_checker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Step 1: Show checker types."""
+    # Prompt for checker type
     codes = list(CHECKER_PRICES.keys())
     rows = [codes[i : i + 2] for i in range(0, len(codes), 2)]
-    keyboard = [
+    kb = [
         [InlineKeyboardButton(code, callback_data=f"type:{code}") for code in row]
         for row in rows
     ]
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+    kb.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+
     await update.message.reply_text(
         "🛒 Which checker would you like to purchase?",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=InlineKeyboardMarkup(kb),
     )
     return CHOOSE_CHECKER
 
 
 async def choose_checker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Step 2: Handle type selection and ask quantity."""
     q = update.callback_query
     await q.answer()
 
     if q.data == "cancel":
-        await q.edit_message_text("❌ Purchase cancelled.")
-        return ConversationHandler.END
+        return await cancel_purchase(update, context)
 
     _, checker_type = q.data.split(":", 1)
     context.user_data["checker_type"] = checker_type
 
+    # Prompt for quantity inline
     quantities = [1, 2, 5, 10, 50, 100, 500]
-    qty_rows = [quantities[i : i + 3] for i in range(0, len(quantities), 3)]
-    keyboard = [
+    rows = [quantities[i : i + 3] for i in range(0, len(quantities), 3)]
+    kb = [
         [InlineKeyboardButton(str(n), callback_data=f"qty:{n}") for n in row]
-        for row in qty_rows
+        for row in rows
     ]
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+    kb.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
 
     await q.edit_message_text(
-        f"✏️ How many **{checker_type}** checkers do you want?",
+        f"👍 You chose *{checker_type}*. How many would you like?",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=InlineKeyboardMarkup(kb),
     )
     return ENTER_QUANTITY
 
 
 async def enter_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Step 3: Create payment and prompt verification."""
     q = update.callback_query
     await q.answer()
 
     if q.data == "cancel":
-        await q.edit_message_text("❌ Purchase cancelled.")
-        return ConversationHandler.END
+        return await cancel_purchase(update, context)
 
     _, qty_str = q.data.split(":", 1)
     quantity = int(qty_str)
     checker_type = context.user_data["checker_type"]
 
-    stock = (await checker_stock_coll.find_one({"checker_type": checker_type}) or {}).get("stock", 0)
-    if quantity > stock:
+    # Check stock
+    stock_doc = checker_stock_coll.document(checker_type).get()
+    available = (stock_doc.to_dict() or {}).get("stock", 0)
+    if quantity > available:
         await q.edit_message_text(
-            f"⚠️ Only {stock} *{checker_type}* checkers available.\n"
+            f"⚠️ You requested *{quantity}* but only *{available}* available.\n"
             "Please choose a smaller quantity.",
             parse_mode="Markdown",
         )
         return ConversationHandler.END
 
+    # Calculate price
     unit_price = CHECKER_PRICES[checker_type]
     total = unit_price * quantity
 
-    user = await users_coll.find_one({"telegram_id": q.from_user.id})
-    email = user.get("email", "N/A")
+    # Fetch user email
+    user_doc = users_coll.document(str(q.from_user.id)).get()
+    email = (user_doc.to_dict() or {}).get("email", "N/A")
 
     # Initialize Paystack
-    reference = uuid.uuid4().hex
-    auth_url, pay_ref = initialize_payment(email, total, reference)
+    ref = uuid.uuid4().hex
+    pay_url, _ = initialize_payment(email, total, ref)
 
     # Record transaction
-    await transactions_coll.insert_one({
-        "user_id":    q.from_user.id,
-        "type":       "checker",
-        "item_code":  checker_type,
-        "quantity":   quantity,
-        "amount":     total,
-        "status":     "pending",
-        "reference":  pay_ref,
-    })
-
-    summary = (
-        f"TID:{pay_ref}\n"
-        f"Quantity: {quantity}\n"
-        f"Type: {checker_type}\n\n"
-        "💳 Tap **Pay Now**, then once done, tap **I've Paid**."
+    transactions_coll.document(ref).set(
+        {
+            "user_id":   q.from_user.id,
+            "item_code": checker_type,
+            "quantity":  quantity,
+            "amount":    total,
+            "status":    "pending",
+            "reference": ref,
+        }
     )
-    keyboard = [[
-        InlineKeyboardButton("💳 Pay Now", url=auth_url),
-        InlineKeyboardButton("✔️ I've Paid", callback_data=f"verify:{pay_ref}")
-    ]]
+
+    # Build summary
+    summary = (
+        f"✨ *Order Summary* ✨\n"
+        f"• Email: `{email}`\n"
+        f"• User: {q.from_user.full_name}\n"
+        f"• Type: *{checker_type}* x{quantity}\n"
+        f"• Total: *₵{total}*\n"
+        f"• TID: `{ref}`\n\n"
+        "Tap below to pay:"
+    )
+    pay_button = InlineKeyboardButton("💳 Pay Now", url=pay_url)
     await q.edit_message_text(
         summary,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=InlineKeyboardMarkup([[pay_button]]),
     )
 
-    context.user_data.update(
-        quantity=quantity,
-        reference=pay_ref,
-        checker_type=checker_type,
-    )
-    return VERIFY_PAYMENT
+    return ConversationHandler.END
 
 
-async def verify_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Step 4: Verify payment, assign codes, and deliver."""
-    q = update.callback_query
-    await q.answer()
-
-    if not q.data.startswith("verify:"):
-        return ConversationHandler.END
-
-    _, ref = q.data.split(":", 1)
-    try:
-        verify_payment(ref)
-    except PaystackError as e:
-        await q.edit_message_text(f"❌ Verification failed: {e}")
-        return ConversationHandler.END
-
-    # Mark transaction success
-    await transactions_coll.update_one(
-        {"reference": ref},
-        {"$set": {"status": "success"}}
-    )
-
-    qty = context.user_data["quantity"]
-    typ = context.user_data["checker_type"]
-    docs = await checker_codes_coll.find(
-        {"checker_type": typ, "used": False}
-    ).to_list(length=qty)
-
-    if len(docs) < qty:
-        await q.edit_message_text("❌ Not enough codes available.")
-        return ConversationHandler.END
-
-    codes = []
-    for doc in docs:
-        await checker_codes_coll.update_one(
-            {"_id": doc["_id"]}, {"$set": {"used": True}}
+async def cancel_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Unified cancel handler for both callback-query and message contexts.
+    """
+    if update.callback_query:
+        q = update.callback_query
+        await q.answer()
+        # Edit the original message to indicate cancellation
+        await q.edit_message_text(
+            "❌ Purchase cancelled.\nUse /start to see the main menu again."
         )
-        codes.append((doc["serial"], doc["pin"]))
-
-    # Save assigned codes on transaction
-    await transactions_coll.update_one(
-        {"reference": ref},
-        {"$set": {"codes_assigned": [{"serial": s, "pin": p} for s, p in codes]}}
-    )
-
-    # Build delivery message
-    lines = [f"TID:{ref}"]
-    for i, (s, p) in enumerate(codes, start=1):
-        lines.append(f"#{i}\n-\n{typ}\nSERIAL|PIN\n{s}|{p}\n")
-    lines.append("Check your results here\nghana.waecdirect.org\n-")
-    message = "\n".join(lines)
-
-    await q.edit_message_text(message, parse_mode="Markdown")
-
-    # Return to main menu
-    from handlers.main_menu import build_main_menu
-    await q.message.reply_text(
-        "Here’s the main menu:",
-        reply_markup=build_main_menu()
-    )
+    else:
+        # Fallback if called via a text command
+        await update.message.reply_text(
+            "❌ Purchase cancelled.\nUse /start to see the main menu again."
+        )
     return ConversationHandler.END

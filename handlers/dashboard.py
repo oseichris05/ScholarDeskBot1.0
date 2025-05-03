@@ -1,58 +1,185 @@
-from datetime import datetime
-from telegram import ReplyKeyboardMarkup, Update
-from telegram.ext import ContextTypes, ConversationHandler
-from handlers.main_menu import build_main_menu
-from utils.db import users_coll
+# from telegram import Update, ReplyKeyboardMarkup
+# from telegram.ext import (
+#     ContextTypes,
+#     ConversationHandler,
+#     MessageHandler,
+#     filters,
+# )
+# from utils.db import users_coll, transactions_coll
 
-# Conversation state for Dashboard
-DASH_STATE = 1
+# RETRIEVE_TID = 1
 
-# Dashboard button labels
+# DASHBOARD_OPTIONS = [
+#     "Purchases History",
+#     "Referral Program",
+#     "Retrieve Checker",
+#     "Back to Main Menu",
+# ]
+
+# def build_dashboard_menu() -> ReplyKeyboardMarkup:
+#     return ReplyKeyboardMarkup([[opt] for opt in DASHBOARD_OPTIONS], resize_keyboard=True)
+
+# async def handle_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     tg   = update.effective_user
+#     doc  = users_coll.document(str(tg.id)).get()
+#     data = doc.to_dict() or {}
+#     name = data.get("telegram_first_name", tg.first_name)
+#     await update.message.reply_text(
+#         f"Hello <b>{name}</b>! What would you like to do?",
+#         reply_markup=build_dashboard_menu(),
+#         parse_mode="HTML"
+#     )
+#     return RETRIEVE_TID
+
+# async def handle_dashboard_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     choice = update.message.text
+#     uid    = update.effective_user.id
+
+#     if choice == "Purchases History":
+#         txns = transactions_coll.where(
+#             field_path="user_id", op_string="==", value=uid
+#         ).stream()
+#         recs = [d.to_dict() for d in txns]
+#         if not recs:
+#             await update.message.reply_text("You have no purchase history.")
+#         else:
+#             lines = ["🛒 <b>Your Purchases:</b>"]
+#             for t in recs:
+#                 lines.append(
+#                     f"TID:{t['reference']} – {t['item_code']} x{t['quantity']} ({t['status']})"
+#                 )
+#             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+#         return RETRIEVE_TID
+
+#     if choice == "Referral Program":
+#         await update.message.reply_text("🤝 Referral program: coming soon!")
+#         return RETRIEVE_TID
+
+#     if choice == "Retrieve Checker":
+#         await update.message.reply_text("🔍 Please enter your TID to retrieve your codes:")
+#         return RETRIEVE_TID
+
+#     if choice == "Back to Main Menu":
+#         from handlers.main_menu import build_main_menu
+#         await update.message.reply_text(
+#             "🔙 Back to main menu:", reply_markup=build_main_menu()
+#         )
+#         return ConversationHandler.END
+
+#     # Otherwise, treat input as TID
+#     tid = choice.strip()
+#     doc = transactions_coll.document(tid).get().to_dict() or {}
+#     codes = doc.get("codes_assigned", [])
+#     if not codes:
+#         await update.message.reply_text("❌ No codes found for that TID.")
+#     else:
+#         lines = [f"TID:{tid}"]
+#         for i, entry in enumerate(codes, start=1):
+#             serial = entry.get("serial")
+#             pin    = entry.get("pin")
+#             lines.append(f"#{i}\n{serial}|{pin}")
+#         await update.message.reply_text("\n".join(lines))
+#     from handlers.main_menu import build_main_menu
+#     await update.message.reply_text(
+#         "🔙 Main menu:", reply_markup=build_main_menu()
+#     )
+#     return ConversationHandler.END
+
+
+# handlers/dashboard.py
+
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
+from utils.db import users_coll, transactions_coll
+
+RETRIEVE_TID = 1
+
 DASHBOARD_OPTIONS = [
-    "Purchase History",
+    "Purchases History",
     "Referral Program",
-    "Retrieve Lost Item",
-    "🏫 ScholarDeskAI",
+    "Retrieve Checker",
     "Educational Resources",
-    "◀ Back to Main Menu",
+    "ScholarDeskAI",
+    "Back to Main Menu",
 ]
-DASHBOARD_BUTTONS = [[opt] for opt in DASHBOARD_OPTIONS]
-
 
 def build_dashboard_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(DASHBOARD_BUTTONS, resize_keyboard=True)
-
+    return ReplyKeyboardMarkup([[opt] for opt in DASHBOARD_OPTIONS], resize_keyboard=True)
 
 async def handle_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry into Dashboard conversation."""
-    tg_user = update.effective_user
-    user = await users_coll.find_one({"telegram_id": tg_user.id})
-    username = user.get("username", tg_user.first_name)
+    tg   = update.effective_user
+    doc  = users_coll.document(str(tg.id)).get()
+    name = (doc.to_dict() or {}).get("telegram_first_name", tg.first_name)
     await update.message.reply_text(
-        f"👤 Dashboard for {username}",
-        reply_markup=build_dashboard_menu()
+        f"🗂 Hey <b>{name}</b>, what would you like to do?",
+        reply_markup=build_dashboard_menu(),
+        parse_mode="HTML"
     )
-    return DASH_STATE
-
+    return RETRIEVE_TID
 
 async def handle_dashboard_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle the user’s choice inside Dashboard."""
-    text = update.message.text
+    choice = update.message.text
+    uid    = update.effective_user.id
 
-    if text == "◀ Back to Main Menu":
+    if choice == "Purchases History":
+        txns = transactions_coll.where(field_path="user_id", op_string="==", value=uid).stream()
+        recs = [d.to_dict() for d in txns]
+        if not recs:
+            await update.message.reply_text("You haven’t made any purchases yet.")
+        else:
+            lines = ["🛒 <b>Your Purchase History:</b>"]
+            for t in recs:
+                lines.append(
+                    f"TID:{t['reference']} – {t['item_code']} x{t['quantity']} ({t['status']})"
+                )
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return RETRIEVE_TID
+
+    if choice == "Referral Program":
+        await update.message.reply_text("🤝 Invite friends and earn points! (Coming soon)")
+        return RETRIEVE_TID
+
+    if choice == "Retrieve Checker":
+        await update.message.reply_text("🔍 Please send me your TID to retrieve codes:")
+        return RETRIEVE_TID
+
+    if choice == "Educational Resources":
         await update.message.reply_text(
-            "Returning to main menu:",
+            "📚 Access resources here: https://scholardesk.example.com/resources"
+        )
+        return RETRIEVE_TID
+
+    if choice == "ScholarDeskAI":
+        await update.message.reply_text("🤖 Ask me anything! Just type your question.")
+        return RETRIEVE_TID
+
+    if choice == "Back to Main Menu":
+        from handlers.main_menu import build_main_menu
+        await update.message.reply_text(
+            "🔙 Returning to main menu...",
             reply_markup=build_main_menu()
         )
         return ConversationHandler.END
 
-    responses = {
-        "Purchase History": "Here is your purchase history (coming soon).",
-        "Referral Program": "Your referral program details (coming soon).",
-        "Retrieve Lost Item": "Retrieve lost item flow (coming soon).",
-        "🏫 ScholarDeskAI": "Launching ScholarDeskAI (coming soon).",
-        "Educational Resources": "Educational resources (coming soon).",
-    }
-    await update.message.reply_text(responses.get(text, "Unknown option."))
-    # Stay in DASH_STATE until user presses Back
-    return DASH_STATE
+    # Otherwise treat as TID lookup
+    tid  = choice.strip()
+    doc  = transactions_coll.document(tid).get().to_dict() or {}
+    codes= doc.get("codes_assigned", [])
+    if not codes:
+        await update.message.reply_text("❌ No codes found for that TID.")
+    else:
+        lines = [f"TID:{tid}"]
+        for i, entry in enumerate(codes, start=1):
+            lines.append(f"#{i}\n{entry['serial']}|{entry['pin']}")
+        lines.append("\nReturn anytime with /dashboard")
+        await update.message.reply_text("\n".join(lines))
+    from handlers.main_menu import build_main_menu
+    await update.message.reply_text(
+        "🔙 Back to main menu", reply_markup=build_main_menu()
+    )
+    return ConversationHandler.END
