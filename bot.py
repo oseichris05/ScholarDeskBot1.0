@@ -7,8 +7,11 @@
 
 # import os
 # import json
+# import asyncio
 # from pathlib import Path
 # from dotenv import load_dotenv
+# from telegram import Update
+# from telegram.error import TimedOut
 # from telegram.ext import (
 #     ApplicationBuilder,
 #     CommandHandler,
@@ -18,39 +21,59 @@
 #     filters,
 #     ContextTypes,
 # )
-# from handlers.help        import help_command
-# from handlers.main_menu   import start, email, username, EMAIL, USERNAME, build_main_menu
-# from handlers.dashboard   import handle_dashboard, handle_dashboard_choice, RETRIEVE_TID
-# from handlers.buy_checker import start_buy_checker, choose_checker, enter_quantity, CHOOSE_CHECKER, ENTER_QUANTITY
-# from utils.db             import transactions_coll, checker_codes_coll
-# from utils.paystack       import verify_payment
 
-# # Load environment
+# # Handler imports
+# from handlers.help import help_command
+# from handlers.main_menu import start, email, username, EMAIL, USERNAME, build_main_menu
+# from handlers.dashboard import (
+#     handle_dashboard,
+#     handle_dashboard_choice,
+#     RETRIEVE_TID,
+# )
+# from handlers.buy_checker import (
+#     start_buy_checker,
+#     choose_checker,
+#     enter_quantity,
+#     cancel_purchase,
+#     CHOOSE_CHECKER,
+#     ENTER_QUANTITY,
+# )
+
+# # Database & payment utils
+# from utils.db import transactions_coll, checker_codes_coll
+# from utils.paystack import verify_payment
+
+# # Load environment and config
 # load_dotenv()
 # CONFIG = json.loads(Path("config.json").read_text())
-# TOKEN  = os.getenv(CONFIG["telegram"]["token_env_var"])
+# TOKEN = os.getenv(CONFIG["telegram"]["token_env_var"])
 # if not TOKEN:
 #     raise RuntimeError("TELEGRAM_TOKEN is not set")
 
-# # Background job callback to auto‑deliver paid checkers
+
+# # Background job: auto‑deliver paid checkers
 # async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
-#     # Run this every 30s
-#     for doc in transactions_coll.where("status", "==", "pending").stream():
+#     for doc in transactions_coll.where(
+#         field_path="status", op_string="==", value="pending"
+#     ).stream():
 #         txn = doc.to_dict()
-#         ref = txn["reference"]
+#         ref, uid, qty, typ = (
+#             txn["reference"],
+#             txn["user_id"],
+#             txn["quantity"],
+#             txn["item_code"],
+#         )
 #         try:
 #             verify_payment(ref)
 #         except Exception:
-#             continue  # still unpaid
+#             continue
 #         # Mark success
 #         transactions_coll.document(ref).update({"status": "success"})
-#         # Assign codes
-#         qty = txn["quantity"]
-#         typ = txn["item_code"]
+#         # Allocate codes
 #         docs = list(
 #             checker_codes_coll
-#             .where("checker_type", "==", typ)
-#             .where("used", "==", False)
+#             .where(field_path="checker_type", op_string="==", value=typ)
+#             .where(field_path="used", op_string="==", value=False)
 #             .limit(qty)
 #             .stream()
 #         )
@@ -60,17 +83,32 @@
 #             codes.append((data["serial"], data["pin"]))
 #             checker_codes_coll.document(d.id).update({"used": True})
 
-#         # Send to user
+#         # Send delivery message
 #         lines = [f"TID:{ref}"]
 #         for i, (s, p) in enumerate(codes, start=1):
-#             lines.append(f"#{i}\n{s}|{p}")
-#         lines.append("Check your results here\nghana.waecdirect.org")
-#         await context.bot.send_message(txn["user_id"], "\n".join(lines))
+#             lines.append(f"#{i}\n-\n{typ}\nSERIAL|PIN\n{s}|{p}")
+#         lines.append("\nCheck your results here\nghana.waecdirect.org\n-")
+#         await context.bot.send_message(uid, "\n".join(lines))
+
+
+# # Global error handler (keeps the bot alive)
+# async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+#     if isinstance(context.error, TimedOut):
+#         return
+#     import traceback
+#     traceback.print_exception(
+#         type(context.error), context.error, context.error.__traceback__
+#     )
+#     if isinstance(update, Update) and update.effective_message:
+#         await update.effective_message.reply_text(
+#             "⚠️ Sorry, something went wrong. Please try again later."
+#         )
+
 
 # def main():
-#     app = ApplicationBuilder().token(TOKEN).concurrent_updates(True).build()
+#     app = ApplicationBuilder().token(TOKEN).build()
 
-#     # Registration (/start)
+#     # --- Registration (/start) ---
 #     reg_conv = ConversationHandler(
 #         entry_points=[CommandHandler("start", start)],
 #         states={
@@ -81,10 +119,10 @@
 #     )
 #     app.add_handler(reg_conv)
 
-#     # /help
+#     # --- Help (/help) ---
 #     app.add_handler(CommandHandler("help", help_command))
 
-#     # Dashboard (command + button)
+#     # --- Dashboard (button + /dashboard) ---
 #     app.add_handler(CommandHandler("dashboard", handle_dashboard))
 #     dash_conv = ConversationHandler(
 #         entry_points=[
@@ -93,46 +131,49 @@
 #         states={
 #             RETRIEVE_TID: [
 #                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dashboard_choice)
-#             ]
+#             ],
 #         },
-#         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+#         fallbacks=[
+#             CommandHandler("cancel", lambda u, c: ConversationHandler.END),
+#             MessageHandler(filters.Regex(r"^Back to Main Menu$"), lambda u, c: ConversationHandler.END),
+#         ],
 #     )
 #     app.add_handler(dash_conv)
 
-#     # Buy Checker (command + button)
+#     # --- Buy Checker (button + /buy_checker) ---
 #     app.add_handler(CommandHandler("buy_checker", start_buy_checker))
 #     buy_conv = ConversationHandler(
 #         entry_points=[
-#             MessageHandler(filters.Regex(r"^🛒 Buy Checker$|^Buy Checker$"), start_buy_checker)
+#             MessageHandler(filters.Regex(r"^🛒 Buy Checker$|^Buy Checker$"), start_buy_checker),
+#             CommandHandler("buy_checker", start_buy_checker),
 #         ],
 #         states={
-#             CHOOSE_CHECKER:  [CallbackQueryHandler(choose_checker, pattern=r"^type:.+")],
-#             ENTER_QUANTITY: [CallbackQueryHandler(enter_quantity, pattern=r"^qty:\d+$")],
+#             CHOOSE_CHECKER: [
+#                 CallbackQueryHandler(choose_checker, pattern=r"^type:.+"),
+#                 CallbackQueryHandler(cancel_purchase, pattern=r"^cancel$"),
+#             ],
+#             ENTER_QUANTITY: [
+#                 CallbackQueryHandler(enter_quantity, pattern=r"^qty:\d+$"),
+#                 CallbackQueryHandler(cancel_purchase, pattern=r"^cancel$"),
+#             ],
 #         },
-#         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+#         fallbacks=[CommandHandler("cancel", cancel_purchase)],
 #     )
 #     app.add_handler(buy_conv)
 
-#     # Schedule the pending‑check job every 30 seconds
-#     # use the built‑in JobQueue rather than APScheduler
+#     # --- Schedule auto‑delivery every 30 seconds ---
 #     jq = app.job_queue
-#     jq.run_repeating(check_pending_job, interval=30.0, first=15.0)
+#     jq.run_repeating(check_pending_job, interval=30.0, first=10.0)
+
+#     # --- Global error handler ---
+#     app.add_error_handler(error_handler)
 
 #     print("Bot is starting…")
 #     app.run_polling(poll_interval=0.0)
 
+
 # if __name__ == "__main__":
 #     main()
-
-
-# bot.py
-
-
-
-# bot.py
-
-
-# bot.py
 
 
 
@@ -165,11 +206,7 @@ from telegram.ext import (
 # Handler imports
 from handlers.help import help_command
 from handlers.main_menu import start, email, username, EMAIL, USERNAME, build_main_menu
-from handlers.dashboard import (
-    handle_dashboard,
-    handle_dashboard_choice,
-    RETRIEVE_TID,
-)
+from handlers.dashboard import handle_dashboard, handle_dashboard_choice, RETRIEVE_TID
 from handlers.buy_checker import (
     start_buy_checker,
     choose_checker,
@@ -177,6 +214,14 @@ from handlers.buy_checker import (
     cancel_purchase,
     CHOOSE_CHECKER,
     ENTER_QUANTITY,
+)
+from handlers.buy_forms import (
+    start_buy_forms,
+    choose_form_category,
+    choose_university,
+    cancel_forms,
+    FORM_CATEGORY,
+    CHOOSE_UNIVERSITY,
 )
 
 # Database & payment utils
@@ -186,12 +231,11 @@ from utils.paystack import verify_payment
 # Load environment and config
 load_dotenv()
 CONFIG = json.loads(Path("config.json").read_text())
-TOKEN = os.getenv(CONFIG["telegram"]["token_env_var"])
+TOKEN  = os.getenv(CONFIG["telegram"]["token_env_var"])
 if not TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN is not set")
 
 
-# Background job: auto‑deliver paid checkers
 async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
     for doc in transactions_coll.where(
         field_path="status", op_string="==", value="pending"
@@ -207,9 +251,7 @@ async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
             verify_payment(ref)
         except Exception:
             continue
-        # Mark success
         transactions_coll.document(ref).update({"status": "success"})
-        # Allocate codes
         docs = list(
             checker_codes_coll
             .where(field_path="checker_type", op_string="==", value=typ)
@@ -222,8 +264,6 @@ async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
             data = d.to_dict()
             codes.append((data["serial"], data["pin"]))
             checker_codes_coll.document(d.id).update({"used": True})
-
-        # Send delivery message
         lines = [f"TID:{ref}"]
         for i, (s, p) in enumerate(codes, start=1):
             lines.append(f"#{i}\n-\n{typ}\nSERIAL|PIN\n{s}|{p}")
@@ -231,7 +271,6 @@ async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(uid, "\n".join(lines))
 
 
-# Global error handler (keeps the bot alive)
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, TimedOut):
         return
@@ -248,7 +287,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # --- Registration (/start) ---
+    # /start registration
     reg_conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -259,20 +298,14 @@ def main():
     )
     app.add_handler(reg_conv)
 
-    # --- Help (/help) ---
+    # /help
     app.add_handler(CommandHandler("help", help_command))
 
-    # --- Dashboard (button + /dashboard) ---
+    # Dashboard (button + /dashboard)
     app.add_handler(CommandHandler("dashboard", handle_dashboard))
     dash_conv = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Regex(r"^📊 Dashboard$|^Dashboard$"), handle_dashboard)
-        ],
-        states={
-            RETRIEVE_TID: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dashboard_choice)
-            ],
-        },
+        entry_points=[MessageHandler(filters.Regex(r"^📊 Dashboard$|^Dashboard$"), handle_dashboard)],
+        states={ RETRIEVE_TID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dashboard_choice)] },
         fallbacks=[
             CommandHandler("cancel", lambda u, c: ConversationHandler.END),
             MessageHandler(filters.Regex(r"^Back to Main Menu$"), lambda u, c: ConversationHandler.END),
@@ -280,7 +313,7 @@ def main():
     )
     app.add_handler(dash_conv)
 
-    # --- Buy Checker (button + /buy_checker) ---
+    # Buy Checker (button + /buy_checker)
     app.add_handler(CommandHandler("buy_checker", start_buy_checker))
     buy_conv = ConversationHandler(
         entry_points=[
@@ -301,11 +334,32 @@ def main():
     )
     app.add_handler(buy_conv)
 
-    # --- Schedule auto‑delivery every 30 seconds ---
+    # Buy Forms (button + /buy_forms)
+    app.add_handler(CommandHandler("buy_forms", start_buy_forms))
+    forms_conv = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex(r"^📝 Buy Forms$|^Buy Forms$"), start_buy_forms),
+            CommandHandler("buy_forms", start_buy_forms),
+        ],
+        states={
+            FORM_CATEGORY: [
+                CallbackQueryHandler(choose_form_category, pattern=r"^cat:.+"),
+                CallbackQueryHandler(cancel_forms, pattern=r"^cancel$"),
+            ],
+            CHOOSE_UNIVERSITY: [
+                CallbackQueryHandler(choose_university, pattern=r"^uni:.+"),
+                CallbackQueryHandler(cancel_forms, pattern=r"^cancel$"),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_forms)],
+    )
+    app.add_handler(forms_conv)
+
+    # Schedule auto‑delivery job
     jq = app.job_queue
     jq.run_repeating(check_pending_job, interval=30.0, first=10.0)
 
-    # --- Global error handler ---
+    # Global error handler
     app.add_error_handler(error_handler)
 
     print("Bot is starting…")

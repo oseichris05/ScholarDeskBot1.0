@@ -24,15 +24,58 @@
     "forms": {
         "university": [
             {
-                "code": "UG",
-                "name": "University of Ghana",
-                "price": 299
-            },
-            {
-                "code": "KNUST",
-                "name": "KNUST",
-                "price": 299
-            }
+                "forms": {
+                  "university": [
+                    {
+                      "code": "UG",
+                      "name": "University of Ghana",
+                      "price": 299
+                    },
+                    {
+                      "code": "KNUST",
+                      "name": "Kwame Nkrumah University of Science and Technology",
+                      "price": 299
+                    },
+                    {
+                      "code": "UCC",
+                      "name": "University of Cape Coast",
+                      "price": 299
+                    },
+                    {
+                      "code": "UDS",
+                      "name": "University for Development Studies",
+                      "price": 299
+                    },
+                    {
+                      "code": "UENR",
+                      "name": "University of Energy and Natural Resources",
+                      "price": 299
+                    },
+                    {
+                      "code": "UHAS",
+                      "name": "University of Health and Allied Sciences",
+                      "price": 299
+                    },
+                    {
+                      "code": "UMAT",
+                      "name": "University of Mines and Technology",
+                      "price": 299
+                    },
+                    {
+                      "code": "UPSA",
+                      "name": "University of Professional Studies, Accra",
+                      "price": 299
+                    }
+                  ],
+                  "college": {
+                    "default_price": 399
+                  },
+                  "nursing": {
+                    "default_price": 299
+                  }
+                }
+              }
+              
         ],
         "college": {
             "default_price": 399
