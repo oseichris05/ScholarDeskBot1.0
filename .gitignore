@@ -14,4 +14,4 @@ venv/
 # Mac system files
 .DS_Store
 
-serviceAccountKey.json
+serviceAccountKey.jsonserviceAccountKey.json
