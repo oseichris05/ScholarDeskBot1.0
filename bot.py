@@ -1,184 +1,4 @@
-# import warnings
-# warnings.filterwarnings(
-#     "ignore",
-#     category=UserWarning,
-#     module="google.cloud.firestore_v1.base_collection",
-# )
-
-# import os
-# import json
-# import asyncio
-# from pathlib import Path
-# from dotenv import load_dotenv
-# from telegram import Update
-# from telegram.error import TimedOut
-# from telegram.ext import (
-#     ApplicationBuilder,
-#     CommandHandler,
-#     MessageHandler,
-#     CallbackQueryHandler,
-#     ConversationHandler,
-#     filters,
-#     ContextTypes,
-# )
-
-# # Handler imports
-# from handlers.help import help_command
-# from handlers.main_menu import start, email, username, EMAIL, USERNAME, build_main_menu
-# from handlers.dashboard import (
-#     handle_dashboard,
-#     handle_dashboard_choice,
-#     RETRIEVE_TID,
-# )
-# from handlers.buy_checker import (
-#     start_buy_checker,
-#     choose_checker,
-#     enter_quantity,
-#     cancel_purchase,
-#     CHOOSE_CHECKER,
-#     ENTER_QUANTITY,
-# )
-
-# # Database & payment utils
-# from utils.db import transactions_coll, checker_codes_coll
-# from utils.paystack import verify_payment
-
-# # Load environment and config
-# load_dotenv()
-# CONFIG = json.loads(Path("config.json").read_text())
-# TOKEN = os.getenv(CONFIG["telegram"]["token_env_var"])
-# if not TOKEN:
-#     raise RuntimeError("TELEGRAM_TOKEN is not set")
-
-
-# # Background job: auto‑deliver paid checkers
-# async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
-#     for doc in transactions_coll.where(
-#         field_path="status", op_string="==", value="pending"
-#     ).stream():
-#         txn = doc.to_dict()
-#         ref, uid, qty, typ = (
-#             txn["reference"],
-#             txn["user_id"],
-#             txn["quantity"],
-#             txn["item_code"],
-#         )
-#         try:
-#             verify_payment(ref)
-#         except Exception:
-#             continue
-#         # Mark success
-#         transactions_coll.document(ref).update({"status": "success"})
-#         # Allocate codes
-#         docs = list(
-#             checker_codes_coll
-#             .where(field_path="checker_type", op_string="==", value=typ)
-#             .where(field_path="used", op_string="==", value=False)
-#             .limit(qty)
-#             .stream()
-#         )
-#         codes = []
-#         for d in docs:
-#             data = d.to_dict()
-#             codes.append((data["serial"], data["pin"]))
-#             checker_codes_coll.document(d.id).update({"used": True})
-
-#         # Send delivery message
-#         lines = [f"TID:{ref}"]
-#         for i, (s, p) in enumerate(codes, start=1):
-#             lines.append(f"#{i}\n-\n{typ}\nSERIAL|PIN\n{s}|{p}")
-#         lines.append("\nCheck your results here\nghana.waecdirect.org\n-")
-#         await context.bot.send_message(uid, "\n".join(lines))
-
-
-# # Global error handler (keeps the bot alive)
-# async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-#     if isinstance(context.error, TimedOut):
-#         return
-#     import traceback
-#     traceback.print_exception(
-#         type(context.error), context.error, context.error.__traceback__
-#     )
-#     if isinstance(update, Update) and update.effective_message:
-#         await update.effective_message.reply_text(
-#             "⚠️ Sorry, something went wrong. Please try again later."
-#         )
-
-
-# def main():
-#     app = ApplicationBuilder().token(TOKEN).build()
-
-#     # --- Registration (/start) ---
-#     reg_conv = ConversationHandler(
-#         entry_points=[CommandHandler("start", start)],
-#         states={
-#             EMAIL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, email)],
-#             USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, username)],
-#         },
-#         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-#     )
-#     app.add_handler(reg_conv)
-
-#     # --- Help (/help) ---
-#     app.add_handler(CommandHandler("help", help_command))
-
-#     # --- Dashboard (button + /dashboard) ---
-#     app.add_handler(CommandHandler("dashboard", handle_dashboard))
-#     dash_conv = ConversationHandler(
-#         entry_points=[
-#             MessageHandler(filters.Regex(r"^📊 Dashboard$|^Dashboard$"), handle_dashboard)
-#         ],
-#         states={
-#             RETRIEVE_TID: [
-#                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dashboard_choice)
-#             ],
-#         },
-#         fallbacks=[
-#             CommandHandler("cancel", lambda u, c: ConversationHandler.END),
-#             MessageHandler(filters.Regex(r"^Back to Main Menu$"), lambda u, c: ConversationHandler.END),
-#         ],
-#     )
-#     app.add_handler(dash_conv)
-
-#     # --- Buy Checker (button + /buy_checker) ---
-#     app.add_handler(CommandHandler("buy_checker", start_buy_checker))
-#     buy_conv = ConversationHandler(
-#         entry_points=[
-#             MessageHandler(filters.Regex(r"^🛒 Buy Checker$|^Buy Checker$"), start_buy_checker),
-#             CommandHandler("buy_checker", start_buy_checker),
-#         ],
-#         states={
-#             CHOOSE_CHECKER: [
-#                 CallbackQueryHandler(choose_checker, pattern=r"^type:.+"),
-#                 CallbackQueryHandler(cancel_purchase, pattern=r"^cancel$"),
-#             ],
-#             ENTER_QUANTITY: [
-#                 CallbackQueryHandler(enter_quantity, pattern=r"^qty:\d+$"),
-#                 CallbackQueryHandler(cancel_purchase, pattern=r"^cancel$"),
-#             ],
-#         },
-#         fallbacks=[CommandHandler("cancel", cancel_purchase)],
-#     )
-#     app.add_handler(buy_conv)
-
-#     # --- Schedule auto‑delivery every 30 seconds ---
-#     jq = app.job_queue
-#     jq.run_repeating(check_pending_job, interval=30.0, first=10.0)
-
-#     # --- Global error handler ---
-#     app.add_error_handler(error_handler)
-
-#     print("Bot is starting…")
-#     app.run_polling(poll_interval=0.0)
-
-
-# if __name__ == "__main__":
-#     main()
-
-
-
 # bot.py
-
 import warnings
 warnings.filterwarnings(
     "ignore",
@@ -186,9 +6,7 @@ warnings.filterwarnings(
     module="google.cloud.firestore_v1.base_collection",
 )
 
-import os
-import json
-import asyncio
+import os, json
 from pathlib import Path
 from dotenv import load_dotenv
 from telegram import Update
@@ -204,31 +22,26 @@ from telegram.ext import (
 )
 
 # Handler imports
-from handlers.help import help_command
-from handlers.main_menu import start, email, username, EMAIL, USERNAME, build_main_menu
-from handlers.dashboard import handle_dashboard, handle_dashboard_choice, RETRIEVE_TID
+from handlers.help        import help_command
+from handlers.main_menu   import start, email, username, EMAIL, USERNAME, build_main_menu
+from handlers.dashboard   import handle_dashboard, handle_dashboard_choice, RETRIEVE_TID
 from handlers.buy_checker import (
-    start_buy_checker,
-    choose_checker,
-    enter_quantity,
-    cancel_purchase,
-    CHOOSE_CHECKER,
-    ENTER_QUANTITY,
+    start_buy_checker, choose_checker, enter_quantity, cancel_purchase,
+    CHOOSE_CHECKER, ENTER_QUANTITY
 )
-from handlers.buy_forms import (
-    start_buy_forms,
-    choose_form_category,
-    choose_university,
-    cancel_forms,
-    FORM_CATEGORY,
-    CHOOSE_UNIVERSITY,
+from handlers.buy_forms   import (
+    start_buy_forms, choose_form_category, choose_university, cancel_forms,
+    FORM_CATEGORY, CHOOSE_UNIVERSITY
 )
 
-# Database & payment utils
-from utils.db import transactions_coll, checker_codes_coll
+# Sessions & reminder
+from utils.sessions import reminder_callback
+
+# DB & payment
+from utils.db       import transactions_coll, checker_codes_coll
 from utils.paystack import verify_payment
 
-# Load environment and config
+# Load environment & config
 load_dotenv()
 CONFIG = json.loads(Path("config.json").read_text())
 TOKEN  = os.getenv(CONFIG["telegram"]["token_env_var"])
@@ -236,26 +49,20 @@ if not TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN is not set")
 
 
+# Auto‑deliver paid checkers (unchanged)
 async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
-    for doc in transactions_coll.where(
-        field_path="status", op_string="==", value="pending"
-    ).stream():
+    for doc in transactions_coll.where("status","==","pending").stream():
         txn = doc.to_dict()
-        ref, uid, qty, typ = (
-            txn["reference"],
-            txn["user_id"],
-            txn["quantity"],
-            txn["item_code"],
-        )
+        ref, uid, qty, typ = txn["reference"], txn["user_id"], txn["quantity"], txn["item_code"]
         try:
             verify_payment(ref)
         except Exception:
             continue
-        transactions_coll.document(ref).update({"status": "success"})
+        transactions_coll.document(ref).update({"status":"success"})
         docs = list(
             checker_codes_coll
-            .where(field_path="checker_type", op_string="==", value=typ)
-            .where(field_path="used", op_string="==", value=False)
+            .where("checker_type","==",typ)
+            .where("used","==",False)
             .limit(qty)
             .stream()
         )
@@ -263,57 +70,66 @@ async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
         for d in docs:
             data = d.to_dict()
             codes.append((data["serial"], data["pin"]))
-            checker_codes_coll.document(d.id).update({"used": True})
+            checker_codes_coll.document(d.id).update({"used":True})
         lines = [f"TID:{ref}"]
-        for i, (s, p) in enumerate(codes, start=1):
+        for i,(s,p) in enumerate(codes,1):
             lines.append(f"#{i}\n-\n{typ}\nSERIAL|PIN\n{s}|{p}")
         lines.append("\nCheck your results here\nghana.waecdirect.org\n-")
         await context.bot.send_message(uid, "\n".join(lines))
 
 
+# Global error handler
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, TimedOut):
         return
     import traceback
-    traceback.print_exception(
-        type(context.error), context.error, context.error.__traceback__
-    )
+    traceback.print_exception(type(context.error), context.error, context.error.__traceback__)
     if isinstance(update, Update) and update.effective_message:
         await update.effective_message.reply_text(
-            "⚠️ Sorry, something went wrong. Please try again later."
+            "⚠️ Something went wrong. Please try again later."
         )
 
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # In‑memory session & reminder storage
+    app.bot_data["sessions"]      = {}  # user_id → flow_name
+    app.bot_data["reminder_jobs"] = {}  # user_id → Job
+
+    # Wrapped /start: clears session & reminder
+    async def wrapped_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        uid = update.effective_user.id
+        app.bot_data["sessions"].pop(uid, None)
+        job = app.bot_data["reminder_jobs"].pop(uid, None)
+        if job:
+            job.schedule_removal()
+        return await start(update, context)
+
     # /start registration
     reg_conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[CommandHandler("start", wrapped_start)],
         states={
             EMAIL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, email)],
             USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, username)],
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)],
     )
     app.add_handler(reg_conv)
 
     # /help
     app.add_handler(CommandHandler("help", help_command))
 
-    # Dashboard (button + /dashboard)
+    # Dashboard
     app.add_handler(CommandHandler("dashboard", handle_dashboard))
     dash_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(r"^📊 Dashboard$|^Dashboard$"), handle_dashboard)],
         states={ RETRIEVE_TID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dashboard_choice)] },
-        fallbacks=[
-            CommandHandler("cancel", lambda u, c: ConversationHandler.END),
-            MessageHandler(filters.Regex(r"^Back to Main Menu$"), lambda u, c: ConversationHandler.END),
-        ],
+        fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)],
     )
     app.add_handler(dash_conv)
 
-    # Buy Checker (button + /buy_checker)
+    # Buy Checker
     app.add_handler(CommandHandler("buy_checker", start_buy_checker))
     buy_conv = ConversationHandler(
         entry_points=[
@@ -322,11 +138,11 @@ def main():
         ],
         states={
             CHOOSE_CHECKER: [
-                CallbackQueryHandler(choose_checker, pattern=r"^type:.+"),
+                CallbackQueryHandler(choose_checker,   pattern=r"^type:.+"),
                 CallbackQueryHandler(cancel_purchase, pattern=r"^cancel$"),
             ],
             ENTER_QUANTITY: [
-                CallbackQueryHandler(enter_quantity, pattern=r"^qty:\d+$"),
+                CallbackQueryHandler(enter_quantity,   pattern=r"^qty:\d+$"),
                 CallbackQueryHandler(cancel_purchase, pattern=r"^cancel$"),
             ],
         },
@@ -334,7 +150,7 @@ def main():
     )
     app.add_handler(buy_conv)
 
-    # Buy Forms (button + /buy_forms)
+    # Buy Forms
     app.add_handler(CommandHandler("buy_forms", start_buy_forms))
     forms_conv = ConversationHandler(
         entry_points=[
@@ -344,20 +160,19 @@ def main():
         states={
             FORM_CATEGORY: [
                 CallbackQueryHandler(choose_form_category, pattern=r"^cat:.+"),
-                CallbackQueryHandler(cancel_forms, pattern=r"^cancel$"),
+                CallbackQueryHandler(cancel_forms,         pattern=r"^cancel$"),
             ],
             CHOOSE_UNIVERSITY: [
-                CallbackQueryHandler(choose_university, pattern=r"^uni:.+"),
-                CallbackQueryHandler(cancel_forms, pattern=r"^cancel$"),
+                CallbackQueryHandler(choose_university,    pattern=r"^uni:.+"),
+                CallbackQueryHandler(cancel_forms,         pattern=r"^cancel$"),
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_forms)],
     )
     app.add_handler(forms_conv)
 
-    # Schedule auto‑delivery job
-    jq = app.job_queue
-    jq.run_repeating(check_pending_job, interval=30.0, first=10.0)
+    # Schedule auto‑delivery every 30s
+    app.job_queue.run_repeating(check_pending_job, interval=30.0, first=10.0)
 
     # Global error handler
     app.add_error_handler(error_handler)
