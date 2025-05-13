@@ -1,10 +1,10 @@
 # Byte-compiled / optimized
-__pycache__/
+
 *.py[cod]
 *$py.class
 
 # Virtual environments
-venv/
+
 .env
 
 # IDE settings
@@ -14,4 +14,7 @@ venv/
 # Mac system files
 .DS_Store
 
-serviceAccountKey.jsonserviceAccountKey.json
+serviceAccountKey.json
+__pycache__/
+*.pyc
+venv/
