@@ -226,7 +226,6 @@
 # bot.py
 
 
-# bot.py
 import os
 import json
 import warnings
@@ -248,23 +247,23 @@ if not TELEGRAM_TOKEN or not PAYSTACK_SK:
     raise RuntimeError("Missing TELEGRAM_TOKEN or PAYSTACK_SECRET in environment")
 
 # ── Firestore credentials JSON ─────────────────────────────────────────────────
-#   Expect the raw JSON of your serviceAccountKey.json in this env var
+#   Put your full serviceAccountKey.json contents here (one line) in this var
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 if not GOOGLE_CREDS_JSON:
     raise RuntimeError("Missing GOOGLE_CREDENTIALS_JSON in environment")
 
-# Validate and write to a temp file for the Firebase SDK
+# Validate JSON and write to a temp file for Firebase SDK
 try:
     creds_dict = json.loads(GOOGLE_CREDS_JSON)
 except json.JSONDecodeError as e:
     raise RuntimeError("Invalid JSON in GOOGLE_CREDENTIALS_JSON") from e
 
-tf = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
-tf.write(GOOGLE_CREDS_JSON.encode())
-tf.flush()
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tf.name
+_tf = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+_tf.write(GOOGLE_CREDS_JSON.encode())
+_tf.flush()
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _tf.name
 
-# ── Firebase Realtime‑DB / Firestore URL ────────────────────────────────────────
+# ── Firebase DB URL ────────────────────────────────────────────────────────────
 FIREBASE_DB_URL = os.getenv("FIREBASE_DB_URL")
 if not FIREBASE_DB_URL:
     raise RuntimeError("Missing FIREBASE_DB_URL in environment")
@@ -276,7 +275,7 @@ if not CONFIG_PATH.exists():
 with CONFIG_PATH.open() as f:
     STATIC_CFG = json.load(f)
 
-# ── Initialize Firebase Admin ─────────────────────────────────────────────────
+# ── Initialize Firebase Admin ──────────────────────────────────────────────────
 import firebase_admin
 from firebase_admin import credentials
 
@@ -308,9 +307,6 @@ from handlers.buy_forms   import (
     FORM_CATEGORY, CHOOSE_UNIVERSITY
 )
 
-# … rest of your code unchanged …
-
-
 # Sessions & reminder
 from utils.sessions import reminder_callback
 
@@ -335,7 +331,6 @@ async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             continue
 
-        # Mark success and pull codes
         transactions_coll.document(ref).update({"status": "success"})
         docs = list(
             checker_codes_coll
@@ -351,7 +346,6 @@ async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
             codes.append((data["serial"], data["pin"]))
             checker_codes_coll.document(d.id).update({"used": True})
 
-        # Build and send message
         lines = [f"TID: {ref}"]
         for i, (s, p) in enumerate(codes, 1):
             lines.append(f"#{i}\n{typ}\nSERIAL|PIN\n{s}|{p}")
@@ -364,7 +358,7 @@ async def check_pending_job(context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------------------------------------------------------
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, TimedOut):
-        return  # ignore timeouts
+        return
     import traceback
     traceback.print_exception(type(context.error), context.error, context.error.__traceback__)
     if isinstance(update, Update) and update.effective_message:
@@ -389,7 +383,7 @@ def main():
             job.schedule_removal()
         return await start(update, context)
 
-    # --- Registration (ConversationHandler) ---
+    # --- Registration ---
     reg_conv = ConversationHandler(
         entry_points=[CommandHandler("start", wrapped_start)],
         states={
