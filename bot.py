@@ -227,11 +227,10 @@
 
 
 # bot.py
-
 import os
 import json
-import base64
 import warnings
+import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -245,36 +244,43 @@ load_dotenv()
 # ── Telegram & Paystack tokens ────────────────────────────────────────────────
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 PAYSTACK_SK    = os.getenv("PAYSTACK_SECRET")
-
 if not TELEGRAM_TOKEN or not PAYSTACK_SK:
     raise RuntimeError("Missing TELEGRAM_TOKEN or PAYSTACK_SECRET in environment")
 
-# ── Firebase credentials (base64‑encoded JSON) ─────────────────────────────────
-_fb_b64 = os.getenv("HEROKU_FIREBASE_CRED")
-if not _fb_b64:
-    raise RuntimeError("Missing HEROKU_FIREBASE_CRED in environment")
+# ── Firestore credentials JSON ─────────────────────────────────────────────────
+#   Expect the raw JSON of your serviceAccountKey.json in this env var
+GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+if not GOOGLE_CREDS_JSON:
+    raise RuntimeError("Missing GOOGLE_CREDENTIALS_JSON in environment")
 
+# Validate and write to a temp file for the Firebase SDK
 try:
-    _fb_json = json.loads(base64.b64decode(_fb_b64))
-except Exception as e:
-    raise RuntimeError("Invalid base64 in HEROKU_FIREBASE_CRED") from e
+    creds_dict = json.loads(GOOGLE_CREDS_JSON)
+except json.JSONDecodeError as e:
+    raise RuntimeError("Invalid JSON in GOOGLE_CREDENTIALS_JSON") from e
 
+tf = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+tf.write(GOOGLE_CREDS_JSON.encode())
+tf.flush()
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tf.name
+
+# ── Firebase Realtime‑DB / Firestore URL ────────────────────────────────────────
 FIREBASE_DB_URL = os.getenv("FIREBASE_DB_URL")
 if not FIREBASE_DB_URL:
     raise RuntimeError("Missing FIREBASE_DB_URL in environment")
 
-# ── Static JSON config (universities, prices, etc.) ───────────────────────────
+# ── Static JSON config (universities, prices, etc.) ────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config.json"
 if not CONFIG_PATH.exists():
     raise FileNotFoundError(f"Missing config.json at {CONFIG_PATH}")
-with open(CONFIG_PATH) as f:
+with CONFIG_PATH.open() as f:
     STATIC_CFG = json.load(f)
 
 # ── Initialize Firebase Admin ─────────────────────────────────────────────────
 import firebase_admin
 from firebase_admin import credentials
 
-cred = credentials.Certificate(_fb_json)
+cred = credentials.Certificate(creds_dict)
 firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
 
 # ── Telegram imports & your handler modules ────────────────────────────────────
@@ -301,6 +307,9 @@ from handlers.buy_forms   import (
     start_buy_forms, choose_form_category, choose_university, cancel_forms,
     FORM_CATEGORY, CHOOSE_UNIVERSITY
 )
+
+# … rest of your code unchanged …
+
 
 # Sessions & reminder
 from utils.sessions import reminder_callback
